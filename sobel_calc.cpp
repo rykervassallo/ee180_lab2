@@ -101,35 +101,35 @@ void grayScale(Mat& img, Mat& img_gray_out)
  *  direction, calculates the gradient in the y direction and sum it with Gx
  *  to finish the Sobel calculation
  ********************************************/
-// void sobelCalc(Mat& img_gray, Mat& img_sobel_out)
-// {
-//   for (int i = 1; i < img_gray.rows - 1; i++) {
-//     // Pre-calculate row pointers
-//     unsigned char* row_prev = img_gray.data + IMG_WIDTH * (i - 1);
-//     unsigned char* row_curr = img_gray.data + IMG_WIDTH * i;
-//     unsigned char* row_next = img_gray.data + IMG_WIDTH * (i + 1);
-//     unsigned char* out_row = img_sobel_out.data + IMG_WIDTH * i;
+void sobelCalc(Mat& img_gray, Mat& img_sobel_out)
+{
+  for (int i = 1; i < img_gray.rows - 1; i++) {
+    // Pre-calculate row pointers
+    unsigned char* row_prev = img_gray.data + IMG_WIDTH * (i - 1);
+    unsigned char* row_curr = img_gray.data + IMG_WIDTH * i;
+    unsigned char* row_next = img_gray.data + IMG_WIDTH * (i + 1);
+    unsigned char* out_row = img_sobel_out.data + IMG_WIDTH * i;
     
-//     // Initialize sliding window for first pixel
-//     unsigned char p00 = row_prev[0], p01 = row_prev[1], p02 = row_prev[2];
-//     unsigned char p10 = row_curr[0], p12 = row_curr[2];
-//     unsigned char p20 = row_next[0], p21 = row_next[1], p22 = row_next[2];
+    // Initialize sliding window for first pixel
+    unsigned char p00 = row_prev[0], p01 = row_prev[1], p02 = row_prev[2];
+    unsigned char p10 = row_curr[0], p12 = row_curr[2];
+    unsigned char p20 = row_next[0], p21 = row_next[1], p22 = row_next[2];
     
-//     for (int j = 1; j < img_gray.cols - 1; j++) {
-//       // Calculate convolutions
-//       int sobel_x = abs(p00 - p20 + 2*p01 - 2*p21 + p02 - p22);
-//       int sobel_y = abs(p00 - p02 + 2*p10 - 2*p12 + p20 - p22);
+    for (int j = 1; j < img_gray.cols - 1; j++) {
+      // Calculate convolutions
+      int sobel_x = abs(p00 - p20 + 2*p01 - 2*p21 + p02 - p22);
+      int sobel_y = abs(p00 - p02 + 2*p10 - 2*p12 + p20 - p22);
       
-//       int sobel = sobel_x + sobel_y;
-//       out_row[j] = (sobel > 255) ? 255 : sobel;
+      int sobel = sobel_x + sobel_y;
+      out_row[j] = (sobel > 255) ? 255 : sobel;
       
-//       // Slide the window right (reuse 6 values, load only 3 new ones)
-//       p00 = p01; p01 = p02; p02 = row_prev[j + 2];
-//       p10 = p12; p12 = row_curr[j + 2];
-//       p20 = p21; p21 = p22; p22 = row_next[j + 2];
-//     }
-//   }
-// }
+      // Slide the window right (reuse 6 values, load only 3 new ones)
+      p00 = p01; p01 = p02; p02 = row_prev[j + 2];
+      p10 = p12; p12 = row_curr[j + 2];
+      p20 = p21; p21 = p22; p22 = row_next[j + 2];
+    }
+  }
+}
 // void sobelCalc(Mat& img_gray, Mat& img_sobel_out)
 // {
 // #ifdef __ARM_NEON
@@ -252,100 +252,100 @@ void grayScale(Mat& img, Mat& img_gray_out)
 // #endif
 // }
 
-void sobelCalc(Mat& img_gray, Mat& img_sobel_out)
-{
-#ifdef __ARM_NEON
-  // NEON optimized version - process 8 pixels at a time
-  for (int i = 1; i < img_gray.rows - 1; i++) {
-    unsigned char* row_prev = img_gray.data + IMG_WIDTH * (i - 1);
-    unsigned char* row_curr = img_gray.data + IMG_WIDTH * i;
-    unsigned char* row_next = img_gray.data + IMG_WIDTH * (i + 1);
-    unsigned char* out_row = img_sobel_out.data + IMG_WIDTH * i;
+// void sobelCalc(Mat& img_gray, Mat& img_sobel_out)
+// {
+// #ifdef __ARM_NEON
+//   // NEON optimized version - process 8 pixels at a time
+//   for (int i = 1; i < img_gray.rows - 1; i++) {
+//     unsigned char* row_prev = img_gray.data + IMG_WIDTH * (i - 1);
+//     unsigned char* row_curr = img_gray.data + IMG_WIDTH * i;
+//     unsigned char* row_next = img_gray.data + IMG_WIDTH * (i + 1);
+//     unsigned char* out_row = img_sobel_out.data + IMG_WIDTH * i;
     
-    int j = 1;
-    // Process 8 pixels at a time with NEON
-    for (; j <= img_gray.cols - 9; j += 8) {
-      // Load the 3x10 pixel block (need j-1 to j+8 for 8 outputs)
-      uint8x8_t p00 = vld1_u8(&row_prev[j - 1]);
-      uint8x8_t p01 = vld1_u8(&row_prev[j]);
-      uint8x8_t p02 = vld1_u8(&row_prev[j + 1]);
+//     int j = 1;
+//     // Process 8 pixels at a time with NEON
+//     for (; j <= img_gray.cols - 9; j += 8) {
+//       // Load the 3x10 pixel block (need j-1 to j+8 for 8 outputs)
+//       uint8x8_t p00 = vld1_u8(&row_prev[j - 1]);
+//       uint8x8_t p01 = vld1_u8(&row_prev[j]);
+//       uint8x8_t p02 = vld1_u8(&row_prev[j + 1]);
       
-      uint8x8_t p10 = vld1_u8(&row_curr[j - 1]);
-      uint8x8_t p12 = vld1_u8(&row_curr[j + 1]);
+//       uint8x8_t p10 = vld1_u8(&row_curr[j - 1]);
+//       uint8x8_t p12 = vld1_u8(&row_curr[j + 1]);
       
-      uint8x8_t p20 = vld1_u8(&row_next[j - 1]);
-      uint8x8_t p21 = vld1_u8(&row_next[j]);
-      uint8x8_t p22 = vld1_u8(&row_next[j + 1]);
+//       uint8x8_t p20 = vld1_u8(&row_next[j - 1]);
+//       uint8x8_t p21 = vld1_u8(&row_next[j]);
+//       uint8x8_t p22 = vld1_u8(&row_next[j + 1]);
       
-      // Convert to signed 16-bit to handle negative intermediate values
-      int16x8_t s00 = vreinterpretq_s16_u16(vmovl_u8(p00));
-      int16x8_t s01 = vreinterpretq_s16_u16(vmovl_u8(p01));
-      int16x8_t s02 = vreinterpretq_s16_u16(vmovl_u8(p02));
-      int16x8_t s10 = vreinterpretq_s16_u16(vmovl_u8(p10));
-      int16x8_t s12 = vreinterpretq_s16_u16(vmovl_u8(p12));
-      int16x8_t s20 = vreinterpretq_s16_u16(vmovl_u8(p20));
-      int16x8_t s21 = vreinterpretq_s16_u16(vmovl_u8(p21));
-      int16x8_t s22 = vreinterpretq_s16_u16(vmovl_u8(p22));
+//       // Convert to signed 16-bit to handle negative intermediate values
+//       int16x8_t s00 = vreinterpretq_s16_u16(vmovl_u8(p00));
+//       int16x8_t s01 = vreinterpretq_s16_u16(vmovl_u8(p01));
+//       int16x8_t s02 = vreinterpretq_s16_u16(vmovl_u8(p02));
+//       int16x8_t s10 = vreinterpretq_s16_u16(vmovl_u8(p10));
+//       int16x8_t s12 = vreinterpretq_s16_u16(vmovl_u8(p12));
+//       int16x8_t s20 = vreinterpretq_s16_u16(vmovl_u8(p20));
+//       int16x8_t s21 = vreinterpretq_s16_u16(vmovl_u8(p21));
+//       int16x8_t s22 = vreinterpretq_s16_u16(vmovl_u8(p22));
       
-      // Gx = (p02 + 2*p21 + p22) - (p00 + 2*p01 + p20)
-      int16x8_t gx = vsubq_s16(
-        vaddq_s16(vaddq_s16(s02, s22), vshlq_n_s16(s21, 1)),
-        vaddq_s16(vaddq_s16(s00, s20), vshlq_n_s16(s01, 1))
-      );
+//       // Gx = (p02 + 2*p21 + p22) - (p00 + 2*p01 + p20)
+//       int16x8_t gx = vsubq_s16(
+//         vaddq_s16(vaddq_s16(s02, s22), vshlq_n_s16(s21, 1)),
+//         vaddq_s16(vaddq_s16(s00, s20), vshlq_n_s16(s01, 1))
+//       );
       
-      // Gy = (p20 + 2*p12 + p22) - (p00 + 2*p10 + p02)
-      int16x8_t gy = vsubq_s16(
-        vaddq_s16(vaddq_s16(s20, s22), vshlq_n_s16(s12, 1)),
-        vaddq_s16(vaddq_s16(s00, s02), vshlq_n_s16(s10, 1))
-      );
+//       // Gy = (p20 + 2*p12 + p22) - (p00 + 2*p10 + p02)
+//       int16x8_t gy = vsubq_s16(
+//         vaddq_s16(vaddq_s16(s20, s22), vshlq_n_s16(s12, 1)),
+//         vaddq_s16(vaddq_s16(s00, s02), vshlq_n_s16(s10, 1))
+//       );
       
-      // Take absolute values
-      gx = vabsq_s16(gx);
-      gy = vabsq_s16(gy);
+//       // Take absolute values
+//       gx = vabsq_s16(gx);
+//       gy = vabsq_s16(gy);
       
-      // Add and saturate to 8-bit
-      uint8x8_t result = vqmovun_s16(vaddq_s16(gx, gy));
+//       // Add and saturate to 8-bit
+//       uint8x8_t result = vqmovun_s16(vaddq_s16(gx, gy));
       
-      // Store result
-      vst1_u8(&out_row[j], result);
-    }
+//       // Store result
+//       vst1_u8(&out_row[j], result);
+//     }
     
-    // Scalar fallback for remaining pixels
-    for (; j < img_gray.cols - 1; j++) {
-      int p00 = row_prev[j-1], p01 = row_prev[j], p02 = row_prev[j+1];
-      int p10 = row_curr[j-1], p12 = row_curr[j+1];
-      int p20 = row_next[j-1], p21 = row_next[j], p22 = row_next[j+1];
+//     // Scalar fallback for remaining pixels
+//     for (; j < img_gray.cols - 1; j++) {
+//       int p00 = row_prev[j-1], p01 = row_prev[j], p02 = row_prev[j+1];
+//       int p10 = row_curr[j-1], p12 = row_curr[j+1];
+//       int p20 = row_next[j-1], p21 = row_next[j], p22 = row_next[j+1];
       
-      int sobel_x = abs(p00 - p20 + 2*p01 - 2*p21 + p02 - p22);
-      int sobel_y = abs(p00 - p02 + 2*p10 - 2*p12 + p20 - p22);
+//       int sobel_x = abs(p00 - p20 + 2*p01 - 2*p21 + p02 - p22);
+//       int sobel_y = abs(p00 - p02 + 2*p10 - 2*p12 + p20 - p22);
       
-      int sobel = sobel_x + sobel_y;
-      out_row[j] = (sobel > 255) ? 255 : sobel;
-    }
-  }
-#else
-  // Scalar fallback
-  for (int i = 1; i < img_gray.rows - 1; i++) {
-    unsigned char* row_prev = img_gray.data + IMG_WIDTH * (i - 1);
-    unsigned char* row_curr = img_gray.data + IMG_WIDTH * i;
-    unsigned char* row_next = img_gray.data + IMG_WIDTH * (i + 1);
-    unsigned char* out_row = img_sobel_out.data + IMG_WIDTH * i;
+//       int sobel = sobel_x + sobel_y;
+//       out_row[j] = (sobel > 255) ? 255 : sobel;
+//     }
+//   }
+// #else
+//   // Scalar fallback
+//   for (int i = 1; i < img_gray.rows - 1; i++) {
+//     unsigned char* row_prev = img_gray.data + IMG_WIDTH * (i - 1);
+//     unsigned char* row_curr = img_gray.data + IMG_WIDTH * i;
+//     unsigned char* row_next = img_gray.data + IMG_WIDTH * (i + 1);
+//     unsigned char* out_row = img_sobel_out.data + IMG_WIDTH * i;
     
-    unsigned char p00 = row_prev[0], p01 = row_prev[1], p02 = row_prev[2];
-    unsigned char p10 = row_curr[0], p12 = row_curr[2];
-    unsigned char p20 = row_next[0], p21 = row_next[1], p22 = row_next[2];
+//     unsigned char p00 = row_prev[0], p01 = row_prev[1], p02 = row_prev[2];
+//     unsigned char p10 = row_curr[0], p12 = row_curr[2];
+//     unsigned char p20 = row_next[0], p21 = row_next[1], p22 = row_next[2];
     
-    for (int j = 1; j < img_gray.cols - 1; j++) {
-      int sobel_x = abs(p00 - p20 + 2*p01 - 2*p21 + p02 - p22);
-      int sobel_y = abs(p00 - p02 + 2*p10 - 2*p12 + p20 - p22);
+//     for (int j = 1; j < img_gray.cols - 1; j++) {
+//       int sobel_x = abs(p00 - p20 + 2*p01 - 2*p21 + p02 - p22);
+//       int sobel_y = abs(p00 - p02 + 2*p10 - 2*p12 + p20 - p22);
       
-      int sobel = sobel_x + sobel_y;
-      out_row[j] = (sobel > 255) ? 255 : sobel;
+//       int sobel = sobel_x + sobel_y;
+//       out_row[j] = (sobel > 255) ? 255 : sobel;
       
-      p00 = p01; p01 = p02; p02 = row_prev[j + 2];
-      p10 = p12; p12 = row_curr[j + 2];
-      p20 = p21; p21 = p22; p22 = row_next[j + 2];
-    }
-  }
-#endif
-}
+//       p00 = p01; p01 = p02; p02 = row_prev[j + 2];
+//       p10 = p12; p12 = row_curr[j + 2];
+//       p20 = p21; p21 = p22; p22 = row_next[j + 2];
+//     }
+//   }
+// #endif
+// }
