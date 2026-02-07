@@ -27,47 +27,129 @@ using namespace cv;
 //   }
 // }
 
+// void grayScale(Mat& img, Mat& img_gray_out)
+// {
+// #ifdef __ARM_NEON
+//   // NEON optimized version
+//   // Using integer arithmetic: 0.299*R + 0.587*G + 0.114*B
+//   // Scaled to fixed point: (77*R + 150*G + 29*B) >> 8
+//   // This approximates the float math with integers
+  
+//   const uint8x8_t coeff_b = vdup_n_u8(29);   // 0.114 * 256 ≈ 29
+//   const uint8x8_t coeff_g = vdup_n_u8(150);  // 0.587 * 256 ≈ 150
+//   const uint8x8_t coeff_r = vdup_n_u8(77);   // 0.299 * 256 ≈ 77
+  
+//   for (int i = 0; i < img.rows; i++) {
+//     unsigned char* src_row = img.data + STEP0 * i;
+//     unsigned char* dst_row = img_gray_out.data + IMG_WIDTH * i;
+    
+//     int j = 0;
+//     // Process 8 pixels at a time
+//     for (; j <= img.cols - 8; j += 8) {
+//       // Load 8 BGR pixels (24 bytes total)
+//       // Deinterleave BGR into separate channels
+//       uint8x8x3_t bgr = vld3_u8(&src_row[STEP1 * j]);
+      
+//       // bgr.val[0] = B channel (8 pixels)
+//       // bgr.val[1] = G channel (8 pixels)
+//       // bgr.val[2] = R channel (8 pixels)
+      
+//       // Multiply each channel by its coefficient
+//       uint16x8_t b_weighted = vmull_u8(bgr.val[0], coeff_b);
+//       uint16x8_t g_weighted = vmull_u8(bgr.val[1], coeff_g);
+//       uint16x8_t r_weighted = vmull_u8(bgr.val[2], coeff_r);
+      
+//       // Add all channels together
+//       uint16x8_t sum = vaddq_u16(b_weighted, g_weighted);
+//       sum = vaddq_u16(sum, r_weighted);
+      
+//       // Shift right by 8 to divide by 256 (return to normal range)
+//       uint8x8_t gray = vshrn_n_u16(sum, 8);
+      
+//       // Store 8 grayscale pixels
+//       vst1_u8(&dst_row[j], gray);
+//     }
+    
+//     // Handle remaining pixels with scalar code
+//     for (; j < img.cols; j++) {
+//       double color = .114 * src_row[STEP1*j] +
+//                      .587 * src_row[STEP1*j + 1] +
+//                      .299 * src_row[STEP1*j + 2];
+//       dst_row[j] = color;
+//     }
+//   }
+// #else
+//   // Scalar fallback
+//   double color;
+//   for (int i = 0; i < img.rows; i++) {
+//     for (int j = 0; j < img.cols; j++) {
+//       color = .114*img.data[STEP0*i + STEP1*j] +
+//               .587*img.data[STEP0*i + STEP1*j + 1] +
+//               .299*img.data[STEP0*i + STEP1*j + 2];
+//       img_gray_out.data[IMG_WIDTH*i + j] = color;
+//     }
+//   }
+// #endif
+// }
+
 void grayScale(Mat& img, Mat& img_gray_out)
 {
 #ifdef __ARM_NEON
-  // NEON optimized version
+  // NEON optimized version - process 16 pixels at a time
   // Using integer arithmetic: 0.299*R + 0.587*G + 0.114*B
   // Scaled to fixed point: (77*R + 150*G + 29*B) >> 8
-  // This approximates the float math with integers
   
-  const uint8x8_t coeff_b = vdup_n_u8(29);   // 0.114 * 256 ≈ 29
-  const uint8x8_t coeff_g = vdup_n_u8(150);  // 0.587 * 256 ≈ 150
-  const uint8x8_t coeff_r = vdup_n_u8(77);   // 0.299 * 256 ≈ 77
+  const uint8x16_t coeff_b = vdupq_n_u8(29);   // 0.114 * 256 ≈ 29
+  const uint8x16_t coeff_g = vdupq_n_u8(150);  // 0.587 * 256 ≈ 150
+  const uint8x16_t coeff_r = vdupq_n_u8(77);   // 0.299 * 256 ≈ 77
   
   for (int i = 0; i < img.rows; i++) {
     unsigned char* src_row = img.data + STEP0 * i;
     unsigned char* dst_row = img_gray_out.data + IMG_WIDTH * i;
     
     int j = 0;
-    // Process 8 pixels at a time
-    for (; j <= img.cols - 8; j += 8) {
-      // Load 8 BGR pixels (24 bytes total)
-      // Deinterleave BGR into separate channels
-      uint8x8x3_t bgr = vld3_u8(&src_row[STEP1 * j]);
+    // Process 16 pixels at a time (48 bytes of BGR data)
+    for (; j <= img.cols - 16; j += 16) {
+      // Load 16 BGR pixels (48 bytes total) and deinterleave
+      uint8x16x3_t bgr = vld3q_u8(&src_row[STEP1 * j]);
       
-      // bgr.val[0] = B channel (8 pixels)
-      // bgr.val[1] = G channel (8 pixels)
-      // bgr.val[2] = R channel (8 pixels)
+      // bgr.val[0] = B channel (16 pixels)
+      // bgr.val[1] = G channel (16 pixels)
+      // bgr.val[2] = R channel (16 pixels)
       
-      // Multiply each channel by its coefficient
-      uint16x8_t b_weighted = vmull_u8(bgr.val[0], coeff_b);
-      uint16x8_t g_weighted = vmull_u8(bgr.val[1], coeff_g);
-      uint16x8_t r_weighted = vmull_u8(bgr.val[2], coeff_r);
+      // Process low 8 pixels
+      uint8x8_t b_low = vget_low_u8(bgr.val[0]);
+      uint8x8_t g_low = vget_low_u8(bgr.val[1]);
+      uint8x8_t r_low = vget_low_u8(bgr.val[2]);
       
-      // Add all channels together
-      uint16x8_t sum = vaddq_u16(b_weighted, g_weighted);
-      sum = vaddq_u16(sum, r_weighted);
+      uint16x8_t b_weighted_low = vmull_u8(b_low, vget_low_u8(coeff_b));
+      uint16x8_t g_weighted_low = vmull_u8(g_low, vget_low_u8(coeff_g));
+      uint16x8_t r_weighted_low = vmull_u8(r_low, vget_low_u8(coeff_r));
       
-      // Shift right by 8 to divide by 256 (return to normal range)
-      uint8x8_t gray = vshrn_n_u16(sum, 8);
+      uint16x8_t sum_low = vaddq_u16(b_weighted_low, g_weighted_low);
+      sum_low = vaddq_u16(sum_low, r_weighted_low);
       
-      // Store 8 grayscale pixels
-      vst1_u8(&dst_row[j], gray);
+      uint8x8_t gray_low = vshrn_n_u16(sum_low, 8);
+      
+      // Process high 8 pixels
+      uint8x8_t b_high = vget_high_u8(bgr.val[0]);
+      uint8x8_t g_high = vget_high_u8(bgr.val[1]);
+      uint8x8_t r_high = vget_high_u8(bgr.val[2]);
+      
+      uint16x8_t b_weighted_high = vmull_u8(b_high, vget_high_u8(coeff_b));
+      uint16x8_t g_weighted_high = vmull_u8(g_high, vget_high_u8(coeff_g));
+      uint16x8_t r_weighted_high = vmull_u8(r_high, vget_high_u8(coeff_r));
+      
+      uint16x8_t sum_high = vaddq_u16(b_weighted_high, g_weighted_high);
+      sum_high = vaddq_u16(sum_high, r_weighted_high);
+      
+      uint8x8_t gray_high = vshrn_n_u16(sum_high, 8);
+      
+      // Combine low and high results into a single 16-element vector
+      uint8x16_t gray = vcombine_u8(gray_low, gray_high);
+      
+      // Store 16 grayscale pixels
+      vst1q_u8(&dst_row[j], gray);
     }
     
     // Handle remaining pixels with scalar code
