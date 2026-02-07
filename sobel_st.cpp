@@ -60,11 +60,11 @@ void runSobelST()
   // Keep track of the frames
   int i = 0;
 
-  while (1) {
-    // Allocate memory to hold grayscale and sobel images
-    img_gray = Mat(IMG_HEIGHT, IMG_WIDTH, CV_8UC1);
-    img_sobel = Mat(IMG_HEIGHT, IMG_WIDTH, CV_8UC1);
+  // Allocate memory to hold grayscale and sobel images
+  img_gray = Mat(IMG_HEIGHT, IMG_WIDTH, CV_8UC1);
+  img_sobel = Mat(IMG_HEIGHT, IMG_WIDTH, CV_8UC1);
 
+  while (1) {
     pc_start(&perf_counters);
     src = cvQueryFrame(video_cap);
     pc_stop(&perf_counters);
