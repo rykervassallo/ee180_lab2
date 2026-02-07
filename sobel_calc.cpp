@@ -2,25 +2,94 @@
 #include "sobel_alg.h"
 using namespace cv;
 
+#ifdef __ARM_NEON
+#include <arm_neon.h>
+#endif
+
 /*******************************************
  * Model: grayScale
  * Input: Mat img
  * Output: None directly. Modifies a ref parameter img_gray_out
  * Desc: This module converts the image to grayscale
  ********************************************/
+// void grayScale(Mat& img, Mat& img_gray_out)
+// {
+//   double color;
+
+//   // Convert to grayscale
+//   for (int i=0; i<img.rows; i++) {
+//     for (int j=0; j<img.cols; j++) {
+//       color = .114*img.data[STEP0*i + STEP1*j] +
+//               .587*img.data[STEP0*i + STEP1*j + 1] +
+//               .299*img.data[STEP0*i + STEP1*j + 2];
+//       img_gray_out.data[IMG_WIDTH*i + j] = color;
+//     }
+//   }
+// }
+
 void grayScale(Mat& img, Mat& img_gray_out)
 {
+#ifdef __ARM_NEON
+  // NEON optimized version
+  // Using integer arithmetic: 0.299*R + 0.587*G + 0.114*B
+  // Scaled to fixed point: (77*R + 150*G + 29*B) >> 8
+  // This approximates the float math with integers
+  
+  const uint8x8_t coeff_b = vdup_n_u8(29);   // 0.114 * 256 ≈ 29
+  const uint8x8_t coeff_g = vdup_n_u8(150);  // 0.587 * 256 ≈ 150
+  const uint8x8_t coeff_r = vdup_n_u8(77);   // 0.299 * 256 ≈ 77
+  
+  for (int i = 0; i < img.rows; i++) {
+    unsigned char* src_row = img.data + STEP0 * i;
+    unsigned char* dst_row = img_gray_out.data + IMG_WIDTH * i;
+    
+    int j = 0;
+    // Process 8 pixels at a time
+    for (; j <= img.cols - 8; j += 8) {
+      // Load 8 BGR pixels (24 bytes total)
+      // Deinterleave BGR into separate channels
+      uint8x8x3_t bgr = vld3_u8(&src_row[STEP1 * j]);
+      
+      // bgr.val[0] = B channel (8 pixels)
+      // bgr.val[1] = G channel (8 pixels)
+      // bgr.val[2] = R channel (8 pixels)
+      
+      // Multiply each channel by its coefficient
+      uint16x8_t b_weighted = vmull_u8(bgr.val[0], coeff_b);
+      uint16x8_t g_weighted = vmull_u8(bgr.val[1], coeff_g);
+      uint16x8_t r_weighted = vmull_u8(bgr.val[2], coeff_r);
+      
+      // Add all channels together
+      uint16x8_t sum = vaddq_u16(b_weighted, g_weighted);
+      sum = vaddq_u16(sum, r_weighted);
+      
+      // Shift right by 8 to divide by 256 (return to normal range)
+      uint8x8_t gray = vshrn_n_u16(sum, 8);
+      
+      // Store 8 grayscale pixels
+      vst1_u8(&dst_row[j], gray);
+    }
+    
+    // Handle remaining pixels with scalar code
+    for (; j < img.cols; j++) {
+      double color = .114 * src_row[STEP1*j] +
+                     .587 * src_row[STEP1*j + 1] +
+                     .299 * src_row[STEP1*j + 2];
+      dst_row[j] = color;
+    }
+  }
+#else
+  // Scalar fallback
   double color;
-
-  // Convert to grayscale
-  for (int i=0; i<img.rows; i++) {
-    for (int j=0; j<img.cols; j++) {
+  for (int i = 0; i < img.rows; i++) {
+    for (int j = 0; j < img.cols; j++) {
       color = .114*img.data[STEP0*i + STEP1*j] +
               .587*img.data[STEP0*i + STEP1*j + 1] +
               .299*img.data[STEP0*i + STEP1*j + 2];
       img_gray_out.data[IMG_WIDTH*i + j] = color;
     }
   }
+#endif
 }
 
 /*******************************************
@@ -32,136 +101,6 @@ void grayScale(Mat& img, Mat& img_gray_out)
  *  direction, calculates the gradient in the y direction and sum it with Gx
  *  to finish the Sobel calculation
  ********************************************/
-// void sobelCalc(Mat& img_gray, Mat& img_sobel_out)
-// {
-//   Mat img_outx = img_gray.clone();
-//   Mat img_outy = img_gray.clone();
-
-//   // Apply Sobel filter to black & white image
-//   unsigned short sobel;
-
-//   // Calculate the x convolution
-//   for (int i=1; i<img_gray.rows; i++) {
-//     for (int j=1; j<img_gray.cols; j++) {
-//       sobel = abs(img_gray.data[IMG_WIDTH*(i-1) + (j-1)] -
-// 		  img_gray.data[IMG_WIDTH*(i+1) + (j-1)] +
-// 		  2*img_gray.data[IMG_WIDTH*(i-1) + (j)] -
-// 		  2*img_gray.data[IMG_WIDTH*(i+1) + (j)] +
-// 		  img_gray.data[IMG_WIDTH*(i-1) + (j+1)] -
-// 		  img_gray.data[IMG_WIDTH*(i+1) + (j+1)]);
-
-//       sobel = (sobel > 255) ? 255 : sobel;
-//       img_outx.data[IMG_WIDTH*(i) + (j)] = sobel;
-//     }
-//   }
-
-//   // Calc the y convolution
-//   for (int i=1; i<img_gray.rows; i++) {
-//     for (int j=1; j<img_gray.cols; j++) {
-//      sobel = abs(img_gray.data[IMG_WIDTH*(i-1) + (j-1)] -
-// 		   img_gray.data[IMG_WIDTH*(i-1) + (j+1)] +
-// 		   2*img_gray.data[IMG_WIDTH*(i) + (j-1)] -
-// 		   2*img_gray.data[IMG_WIDTH*(i) + (j+1)] +
-// 		   img_gray.data[IMG_WIDTH*(i+1) + (j-1)] -
-// 		   img_gray.data[IMG_WIDTH*(i+1) + (j+1)]);
-
-//      sobel = (sobel > 255) ? 255 : sobel;
-
-//      img_outy.data[IMG_WIDTH*(i) + j] = sobel;
-//     }
-//   }
-
-//   // Combine the two convolutions into the output image
-//   for (int i=1; i<img_gray.rows; i++) {
-//     for (int j=1; j<img_gray.cols; j++) {
-//       sobel = img_outx.data[IMG_WIDTH*(i) + j] +
-// 	img_outy.data[IMG_WIDTH*(i) + j];
-//       sobel = (sobel > 255) ? 255 : sobel;
-//       img_sobel_out.data[IMG_WIDTH*(i) + j] = sobel;
-//     }
-//   }
-// }
-
-/*******************************************
- * Model: sobelCalc
- * Input: Mat img_in
- * Output: None directly. Modifies a ref parameter img_sobel_out
- * Desc: This module performs a sobel calculation on an image. It first
- *  converts the image to grayscale, calculates the gradient in the x
- *  direction, calculates the gradient in the y direction and sum it with Gx
- *  to finish the Sobel calculation
- ********************************************/
-// void sobelCalc(Mat& img_gray, Mat& img_sobel_out)
-// {
-//   // Apply Sobel filter to black & white image
-//   unsigned short sobel;
-//   unsigned short sobel_x;
-//   unsigned short sobel_y;
-
-//   // Calculate x and y convolutions and combine in single loop
-//   for (int i=1; i<img_gray.rows-1; i++) {
-//     for (int j=1; j<img_gray.cols-1; j++) {
-//       // Calculate the x convolution
-
-//       sobel_x = abs(img_gray.data[IMG_WIDTH*(i-1) + (j-1)] -
-// 		  img_gray.data[IMG_WIDTH*(i+1) + (j-1)] +
-// 		  2*img_gray.data[IMG_WIDTH*(i-1) + (j)] -
-// 		  2*img_gray.data[IMG_WIDTH*(i+1) + (j)] +
-// 		  img_gray.data[IMG_WIDTH*(i-1) + (j+1)] -
-// 		  img_gray.data[IMG_WIDTH*(i+1) + (j+1)]);
-
-//       // Calc the y convolution
-//       sobel_y = abs(img_gray.data[IMG_WIDTH*(i-1) + (j-1)] -
-// 		   img_gray.data[IMG_WIDTH*(i-1) + (j+1)] +
-// 		   2*img_gray.data[IMG_WIDTH*(i) + (j-1)] -
-// 		   2*img_gray.data[IMG_WIDTH*(i) + (j+1)] +
-// 		   img_gray.data[IMG_WIDTH*(i+1) + (j-1)] -
-// 		   img_gray.data[IMG_WIDTH*(i+1) + (j+1)]);
-
-//       // Combine the two convolutions
-//       sobel = sobel_x + sobel_y;
-//       sobel = (sobel > 255) ? 255 : sobel;
-//       img_sobel_out.data[IMG_WIDTH*(i) + j] = sobel;
-//     }
-//   }
-// }
-
-// void sobelCalc(Mat& img_gray, Mat& img_sobel_out)
-// {
-//   // Apply Sobel filter to black & white image
-//   unsigned short sobel;
-//   unsigned short sobel_x;
-//   unsigned short sobel_y;
-
-//   // Calculate x and y convolutions and combine in single loop
-//   for (int i=1; i<img_gray.rows-1; i++) {
-//     for (int j=1; j<img_gray.cols-1; j++) {
-//       // Cache the 9 pixel values needed for the 3x3 kernel
-//       unsigned char p00 = img_gray.data[IMG_WIDTH*(i-1) + (j-1)];
-//       unsigned char p01 = img_gray.data[IMG_WIDTH*(i-1) + (j)];
-//       unsigned char p02 = img_gray.data[IMG_WIDTH*(i-1) + (j+1)];
-      
-//       unsigned char p10 = img_gray.data[IMG_WIDTH*(i) + (j-1)];
-//       unsigned char p12 = img_gray.data[IMG_WIDTH*(i) + (j+1)];
-      
-//       unsigned char p20 = img_gray.data[IMG_WIDTH*(i+1) + (j-1)];
-//       unsigned char p21 = img_gray.data[IMG_WIDTH*(i+1) + (j)];
-//       unsigned char p22 = img_gray.data[IMG_WIDTH*(i+1) + (j+1)];
-
-//       // Calculate the x convolution using cached values
-//       sobel_x = abs(p00 - p20 + 2*p01 - 2*p21 + p02 - p22);
-
-//       // Calc the y convolution using cached values
-//       sobel_y = abs(p00 - p02 + 2*p10 - 2*p12 + p20 - p22);
-
-//       // Combine the two convolutions
-//       sobel = sobel_x + sobel_y;
-//       sobel = (sobel > 255) ? 255 : sobel;
-//       img_sobel_out.data[IMG_WIDTH*(i) + j] = sobel;
-//     }
-//   }
-// }
-
 void sobelCalc(Mat& img_gray, Mat& img_sobel_out)
 {
   for (int i = 1; i < img_gray.rows - 1; i++) {

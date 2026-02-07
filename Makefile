@@ -5,6 +5,7 @@ LDFLAGS=
 LDLIBS=-L /usr/lib $$(pkg-config --cflags --libs opencv) -pthread
 ifeq ($(shell arch), armv7l)
 	LDLIBS += -lpfm
+	CFLAGS += -mfpu=neon -march=armv7-a
 endif
 SOURCES=main.cpp pc.cpp sobel_st.cpp sobel_mt.cpp sobel_calc.cpp
 OBJECTS=$(SOURCES:.cpp=.o)
