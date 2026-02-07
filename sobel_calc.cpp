@@ -101,32 +101,153 @@ void grayScale(Mat& img, Mat& img_gray_out)
  *  direction, calculates the gradient in the y direction and sum it with Gx
  *  to finish the Sobel calculation
  ********************************************/
+// void sobelCalc(Mat& img_gray, Mat& img_sobel_out)
+// {
+//   for (int i = 1; i < img_gray.rows - 1; i++) {
+//     // Pre-calculate row pointers
+//     unsigned char* row_prev = img_gray.data + IMG_WIDTH * (i - 1);
+//     unsigned char* row_curr = img_gray.data + IMG_WIDTH * i;
+//     unsigned char* row_next = img_gray.data + IMG_WIDTH * (i + 1);
+//     unsigned char* out_row = img_sobel_out.data + IMG_WIDTH * i;
+    
+//     // Initialize sliding window for first pixel
+//     unsigned char p00 = row_prev[0], p01 = row_prev[1], p02 = row_prev[2];
+//     unsigned char p10 = row_curr[0], p12 = row_curr[2];
+//     unsigned char p20 = row_next[0], p21 = row_next[1], p22 = row_next[2];
+    
+//     for (int j = 1; j < img_gray.cols - 1; j++) {
+//       // Calculate convolutions
+//       int sobel_x = abs(p00 - p20 + 2*p01 - 2*p21 + p02 - p22);
+//       int sobel_y = abs(p00 - p02 + 2*p10 - 2*p12 + p20 - p22);
+      
+//       int sobel = sobel_x + sobel_y;
+//       out_row[j] = (sobel > 255) ? 255 : sobel;
+      
+//       // Slide the window right (reuse 6 values, load only 3 new ones)
+//       p00 = p01; p01 = p02; p02 = row_prev[j + 2];
+//       p10 = p12; p12 = row_curr[j + 2];
+//       p20 = p21; p21 = p22; p22 = row_next[j + 2];
+//     }
+//   }
+// }
 void sobelCalc(Mat& img_gray, Mat& img_sobel_out)
 {
+#ifdef __ARM_NEON
+  // NEON optimized version
   for (int i = 1; i < img_gray.rows - 1; i++) {
-    // Pre-calculate row pointers
     unsigned char* row_prev = img_gray.data + IMG_WIDTH * (i - 1);
     unsigned char* row_curr = img_gray.data + IMG_WIDTH * i;
     unsigned char* row_next = img_gray.data + IMG_WIDTH * (i + 1);
     unsigned char* out_row = img_sobel_out.data + IMG_WIDTH * i;
     
-    // Initialize sliding window for first pixel
+    int j = 1;
+    // Process 8 pixels at a time with NEON
+    for (; j <= img_gray.cols - 9; j += 8) {
+      // Load 10 bytes from each row (positions j-1 through j+8)
+      // We need j-1, j, j+1 for each of the 8 output pixels
+      uint8x16_t prev_16 = vld1q_u8(&row_prev[j - 1]);
+      uint8x16_t curr_16 = vld1q_u8(&row_curr[j - 1]);
+      uint8x16_t next_16 = vld1q_u8(&row_next[j - 1]);
+      
+      // Extract 8-element vectors for the 3x3 kernel positions
+      uint8x8_t prev_left = vget_low_u8(prev_16);          // j-1
+      uint8x8_t prev_center = vget_low_u8(vextq_u8(prev_16, prev_16, 1)); // j
+      uint8x8_t prev_right = vget_low_u8(vextq_u8(prev_16, prev_16, 2));  // j+1
+      
+      uint8x8_t curr_left = vget_low_u8(curr_16);          // j-1
+      uint8x8_t curr_right = vget_low_u8(vextq_u8(curr_16, curr_16, 2));  // j+1
+      
+      uint8x8_t next_left = vget_low_u8(next_16);          // j-1
+      uint8x8_t next_center = vget_low_u8(vextq_u8(next_16, next_16, 1)); // j
+      uint8x8_t next_right = vget_low_u8(vextq_u8(next_16, next_16, 2));  // j+1
+      
+      // Convert to 16-bit for arithmetic (avoid overflow)
+      int16x8_t p00 = vreinterpretq_s16_u16(vmovl_u8(prev_left));
+      int16x8_t p01 = vreinterpretq_s16_u16(vmovl_u8(prev_center));
+      int16x8_t p02 = vreinterpretq_s16_u16(vmovl_u8(prev_right));
+      
+      int16x8_t p10 = vreinterpretq_s16_u16(vmovl_u8(curr_left));
+      int16x8_t p12 = vreinterpretq_s16_u16(vmovl_u8(curr_right));
+      
+      int16x8_t p20 = vreinterpretq_s16_u16(vmovl_u8(next_left));
+      int16x8_t p21 = vreinterpretq_s16_u16(vmovl_u8(next_center));
+      int16x8_t p22 = vreinterpretq_s16_u16(vmovl_u8(next_right));
+      
+      // Calculate Gx: -p00 + p02 - 2*p01 + 2*p21 - p20 + p22
+      // Rewritten as: (p02 + 2*p21 + p22) - (p00 + 2*p01 + p20)
+      int16x8_t gx_pos = vaddq_s16(p02, p22);
+      gx_pos = vaddq_s16(gx_pos, vshlq_n_s16(p21, 1)); // + 2*p21
+      
+      int16x8_t gx_neg = vaddq_s16(p00, p20);
+      gx_neg = vaddq_s16(gx_neg, vshlq_n_s16(p01, 1)); // + 2*p01
+      
+      int16x8_t gx = vsubq_s16(gx_pos, gx_neg);
+      gx = vabsq_s16(gx); // absolute value
+      
+      // Calculate Gy: -p00 + p20 - 2*p10 + 2*p12 - p02 + p22
+      // Rewritten as: (p20 + 2*p12 + p22) - (p00 + 2*p10 + p02)
+      int16x8_t gy_pos = vaddq_s16(p20, p22);
+      gy_pos = vaddq_s16(gy_pos, vshlq_n_s16(p12, 1)); // + 2*p12
+      
+      int16x8_t gy_neg = vaddq_s16(p00, p02);
+      gy_neg = vaddq_s16(gy_neg, vshlq_n_s16(p10, 1)); // + 2*p10
+      
+      int16x8_t gy = vsubq_s16(gy_pos, gy_neg);
+      gy = vabsq_s16(gy); // absolute value
+      
+      // Combine: sobel = gx + gy
+      int16x8_t sobel_16 = vaddq_s16(gx, gy);
+      
+      // Saturate to 8-bit (clamp to 0-255)
+      uint8x8_t sobel_8 = vqmovun_s16(sobel_16);
+      
+      // Store 8 pixels
+      vst1_u8(&out_row[j], sobel_8);
+    }
+    
+    // Handle remaining pixels with scalar code
+    if (j < img_gray.cols - 1) {
+      unsigned char p00 = row_prev[j-1], p01 = row_prev[j], p02 = row_prev[j+1];
+      unsigned char p10 = row_curr[j-1], p12 = row_curr[j+1];
+      unsigned char p20 = row_next[j-1], p21 = row_next[j], p22 = row_next[j+1];
+      
+      for (; j < img_gray.cols - 1; j++) {
+        int sobel_x = abs(p00 - p20 + 2*p01 - 2*p21 + p02 - p22);
+        int sobel_y = abs(p00 - p02 + 2*p10 - 2*p12 + p20 - p22);
+        
+        int sobel = sobel_x + sobel_y;
+        out_row[j] = (sobel > 255) ? 255 : sobel;
+        
+        // Slide the window
+        p00 = p01; p01 = p02; p02 = row_prev[j + 2];
+        p10 = p12; p12 = row_curr[j + 2];
+        p20 = p21; p21 = p22; p22 = row_next[j + 2];
+      }
+    }
+  }
+#else
+  // Scalar fallback
+  for (int i = 1; i < img_gray.rows - 1; i++) {
+    unsigned char* row_prev = img_gray.data + IMG_WIDTH * (i - 1);
+    unsigned char* row_curr = img_gray.data + IMG_WIDTH * i;
+    unsigned char* row_next = img_gray.data + IMG_WIDTH * (i + 1);
+    unsigned char* out_row = img_sobel_out.data + IMG_WIDTH * i;
+    
     unsigned char p00 = row_prev[0], p01 = row_prev[1], p02 = row_prev[2];
     unsigned char p10 = row_curr[0], p12 = row_curr[2];
     unsigned char p20 = row_next[0], p21 = row_next[1], p22 = row_next[2];
     
     for (int j = 1; j < img_gray.cols - 1; j++) {
-      // Calculate convolutions
       int sobel_x = abs(p00 - p20 + 2*p01 - 2*p21 + p02 - p22);
       int sobel_y = abs(p00 - p02 + 2*p10 - 2*p12 + p20 - p22);
       
       int sobel = sobel_x + sobel_y;
       out_row[j] = (sobel > 255) ? 255 : sobel;
       
-      // Slide the window right (reuse 6 values, load only 3 new ones)
       p00 = p01; p01 = p02; p02 = row_prev[j + 2];
       p10 = p12; p12 = row_curr[j + 2];
       p20 = p21; p21 = p22; p22 = row_next[j + 2];
     }
   }
+#endif
 }
